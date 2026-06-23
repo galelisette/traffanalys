@@ -1,17 +1,22 @@
-# Анализ трафика на круговом движении 
-**Production версия с множеством камер, базой данных временных рядов Influx и дашбордами в Grafana**
+# Roundabout Traffic Analysis
 
-Данная программа осуществляет анализ входящего трафика на участке кругового движения. Алгоритм определяет загруженность примыкающих дорог и выводит интерактивную статистику.
+Production version with multiple cameras, an InfluxDB time-series database, and Grafana dashboards.
 
-Подробный туториал по проекту и его архитектуре - [__ссылка на видео__](https://vk.com/video-145052891_456247910)
+This program analyzes incoming traffic at a roundabout section. The algorithm determines the congestion level of the adjacent roads and outputs interactive statistics.
 
-## Установка и запуск:
 
-Склонируйте репозиторий:
+## Installation and launch
+
+### Clone the repository
+
 ```
-git clone https://github.com/Koldim2001/TrafficAnalyzer.git
+git clone https://github.com/galelisette/traffanalys
 ```
-После этого необходимо в главной директории  проекта создать файл с переменными окружения, которые будут прокинуты в контейнеры Grafana и Influx. Для этого создайте файл `.env` и укажите подобный текст с паролями и логинами к сервисам:
+
+### Configure environment variables
+
+After that, you need to create a file with environment variables in the project's root directory, which will be passed into the Grafana and Influx containers. To do this, create a `.env` file and specify text like the following with the passwords and logins for the services:
+
 ```
 INFLUXDB_ADMIN_USER=admin
 INFLUXDB_ADMIN_PASSWORD=admin
@@ -20,126 +25,92 @@ GRAFANA_ADMIN_PASSWORD=admin
 KAFKA_USERNAME=traffic
 KAFKA_PASSWORD=traffic-secret
 ```
-Далее запустите проект с помощью этой команды:
+
+### Run the project
+
+Next, launch the project using this command:
+
 ```
 docker compose -p traffic_analyzer up -d --build
 ```
 
-Для того, чтобы попасть на дашборд в Grafana надо после запуска компоуза перейти по этой [ссылке](http://localhost:3111/d/edycr94pt2mm8b/dashboard-trafficanalyzer-1-camera-influx?orgId=1&refresh=5s). Введите логин `admin` и пароль `admin`.
-У каждой камеры свой дашборд между которыми можно переходит по кнопке:
+### Adding cameras
 
-![grafana](https://github.com/user-attachments/assets/c0c6d602-2026-460f-9c48-64180e87ca8e)
+Each new camera is added in the compose file as one additional backend instance, `traffic_analyzer_camera_{n}`, where you only need to specify a different source (`src`) and configuration via the service's environment variables.
 
+## Running locally in Python without additional microservices
 
-Каждая новая камера добавляется в компоузе как +1 инстанс бекенда traffic_analyzer_camera_{n}, в котором надо указать лишь разные scr и конфигурации через переменные окружения сервиса.
-
-## Как запустить локально в Python без дополнительных микросервисов:
 ```
-# ставим библиотеки:
+# install the libraries:
 python -m pip install --upgrade pip
 pip install "numpy<2"
 pip install cython_bbox==0.1.5 lap==0.4.0 
 pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 
-# запускаем код:
+# run the code:
 python main_optimized.py pipeline.send_info_kafka=False
 ```
-Результат работы программы можно увидеть, перейдя по [ссылке](http://127.0.0.1:8100/)
 
----
-## Архитектура проекта:
 
-Проект представляет собой систему для анализа видео в реальном времени, работающую с RTSP-стримами или MP4-файлами. Основной сервис **traffic_analyzer_camera_{n}** обрабатывает кадры, извлекает аналитические данные (например, число машин на круговом участке, загруженность примыкающих дорог) и отправляет их в брокер сообщений **Kafka**. Для каждой камеры записись realtime статистики ведется в свой топик *statistics_{n}*. Данные из Kafka автоматически записываются в базу временных рядов **InfluxDB** с помощью **Telegraf**. InfluxDB оптимальна для хранения потоковых данных благодаря высокой производительности и поддержке больших объемов информации.
+## Project architecture
 
-Для визуализации данных используется **Grafana**, которая подключается к InfluxDB и отображает аналитику в виде интерактивных дашбордов. Это позволяет отслеживать ключевые метрики в реальном времени, строить графики и анализировать тренды.
+The project is a real-time video analysis system that works with RTSP streams or MP4 files. The main service, `traffic_analyzer_camera_{n}`, processes frames, extracts analytical data (such as the number of vehicles in the roundabout area and the congestion of adjacent roads), and sends it to the Kafka message broker. For each camera, real-time statistics are recorded in its own topic, `statistics_{n}`. Data from Kafka is automatically written to the InfluxDB time-series database using Telegraf. InfluxDB is optimal for storing streaming data thanks to its high performance and support for large volumes of information.
 
-#### Основные компоненты:
-1. **traffic_analyzer_camera_{n}**: обрабатывает видеопоток по номеру n, отправляет данные в Kafka.
-2. **Kafka**: временное хранение и передача данных.
-3. **Telegraf**: перенос данных из Kafka в InfluxDB.
-4. **InfluxDB**: хранение аналитических данных.
-5. **Grafana**: визуализация данных из InfluxDB в интерактивных дашбордах.
-6. **Nginx**: выступает в роли реверс-прокси для объединения всех результирующих Flask-стримов обработанного видео на одном порту с разными эндпоинтами. Это позволяет удобно управлять доступом к видеостримам и обеспечивает единую точку входа для всех камер.
+Grafana is used to visualize the data: it connects to InfluxDB and displays the analytics as interactive dashboards. This makes it possible to track key metrics in real time, build charts, and analyze trends.
 
-![Архитектура проекта](content_for_readme/архитектура.png)
+### Main components
 
-## Рассмотрим, как реализован код главного сервиса по обработке видеопотока:
+1. **traffic_analyzer_camera_{n}** — processes the video stream numbered `n` and sends data to Kafka.
+2. **Kafka** — temporary storage and transfer of data.
+3. **Telegraf** — transfers data from Kafka to InfluxDB.
+4. **InfluxDB** — stores the analytical data.
+5. **Grafana** — visualizes data from InfluxDB in interactive dashboards.
+6. **Nginx** — acts as a reverse proxy that combines all the resulting Flask streams of processed video on a single port with different endpoints. This makes it convenient to manage access to the video streams and provides a single entry point for all cameras.
 
-Каждый кадр (объект FrameElement) последовательно проходит через ноды, и в атрибуты этого объекта постепенно добавляется все больше и больше информации.
+![Project architecture](https://github.com/galelisette/traffanalys/blob/main/archit.png)
 
-```mermaid
-graph TD;
-    A["VideoReader<br>Считывает кадры из видеопотока"] --> B["DetectionTrackingNodes<br>Реализует детектирование машин + трекинг"];
-    B --> C["TrackerInfoUpdateNode<br>Обновляет информацию об актуальных треках"];
-    C --> D["CalcStatisticsNode<br>Вычисляет загруженность дорог"];
-    D --send_info_kafka==False --> F;
-    D --send_info_kafka==True --> E["KafkaProducerNode<br>Отправляет результаты в Kafka"];
-    E --> F["ShowNode<br>Реализует визуализацию результатов"];
-    F --save_video==True --> H["VideoSaverNode<br>Сохраняет обработанные кадры"];
-    F --show_in_web==True & save_video==False --> L["FlaskServerVideoNode<br>Выводит обработанные кадры в веб-интерфейсе"];
-    H --show_in_web==True --> L
-```
----
+## How the main video processing service works
 
-## Работа с программой:
-Перед запуском необходимо в файле __configs/app_config.yaml__ указать все желаемые параметры. Далее можно запускать код.
+Let's look at how the code of the main video stream processing service is implemented.
 
-Чтобы запустить проект с определенным видео, необходимо указать путь к нему в докер компоузе переменной окружения. Можно вместо пути к файлу указать ссыку на rtsp поток. Там же в переменных окружения контейнера можно указать путь до json файла с указанными координатами полигонов прилегающих дорог. 
+Each frame (a `FrameElement` object) passes sequentially through the nodes, and more and more information is gradually added to the object's attributes.
 
-#### <ins>Варианты запуска для mp4 файлов:<ins>
+![How the main video processing service works](https://github.com/galelisette/traffanalys/blob/main/video_processing_pipeline.png)
 
-**main.py** - основной код проекта, реализующий в цикле прогон кадров через все ноды.
+## Usage
 
-**main_optimized.py** - Оптимизированный код main.py с помошью multiprocessing. Позволяет достичь более высокой скорости обработки (свыше 35 кадров в секунду), поскольку все ресурсоемкие операции распределены между независимыми процессами, работающими параллельно.
+Before launching, you need to specify all the desired parameters in the `configs/app_config.yaml` file. After that, you can run the code.
 
-#### <ins>Дополнительные варианты запуска (только для риалтайм rtsp потоков):<ins>
+To run the project with a specific video, you need to specify the path to it in the docker-compose environment variable. Instead of a file path, you can specify a link to an RTSP stream. In the same container environment variables, you can also specify the path to a JSON file containing the coordinates of the polygons for the adjacent roads.
 
-**main_stream_optimized.py** — версия для работы с потоковым видео в реальном времени, которая обеспечивает обработку только самых актуальных кадров без использования буфера. Это достигается за счет того, что кадры обрабатываются в отдельном процессе, а основной процесс всегда берет для обработки только последний доступный кадр.
+### Launch options for MP4 files
 
-**main_stream_optimized_v2.py** — улучшенная версия main_stream_optimized.py. Основное отличие заключается в том, что при завершении или сбое одного из процессов автоматически завершается и второй процесс. Контроль за состоянием процессов осуществляется через метод `process.is_alive()`, что обеспечивает более надежное управление жизненным циклом процессов.
+`main.py` — the project's main code, which runs frames through all the nodes in a loop.
 
----
-## Примеры работы кода:
+`main_optimized.py` — an optimized version of `main.py` using multiprocessing. It achieves higher processing speed (over 35 frames per second), since all resource-intensive operations are distributed across independent processes running in parallel.
 
-__Пример работы алгоритма c выводом статистики__: каждая машина отображается цветом, соответствующим дороге, с которой она прибыла к круговому движению + выводится значение числа видимых машин + значения интенсивности входного потока (число машин в минуту с каждой входящей дороги). <br/>Отображается таким образом при выборе в конфигурации show_node.show_info_statistics=True 
+### Additional launch options (real-time RTSP streams only)
 
-![Traffic statistics 1](content_for_readme/with_statistics_1.gif)
-![Traffic statistics 2](content_for_readme/with_statistics_2.gif)
+`main_stream_optimized.py` — a version for working with real-time streaming video that processes only the most up-to-date frames without using a buffer. This is achieved by processing frames in a separate process, while the main process always takes only the latest available frame for processing.
 
-Отключить отображение окна со статистикой можно при выборе в конфигурации show_node.show_info_statistics=False <br/>
-Чтобы наблюдать fps обработки как в первом представленном примере, необходимо в конфиге указать show_node.draw_fps_info=True.  
+`main_stream_optimized_v2.py` — an improved version of `main_stream_optimized.py`. The main difference is that if one of the processes terminates or fails, the other process is automatically terminated as well. Process state is monitored via the `process.is_alive()` method, which provides more reliable control over the process lifecycle.
 
----
-__Пример режима демонстрации результатов трекинга машин__ (каждый id своим уникальным цветом отображается) <br/>
-Отображается таким образом при выборе в конфигурации show_node.show_track_id_different_colors=True 
+### Examples
 
-![Traffic Tracking](content_for_readme/traffic_tracking.gif)
+Example of the algorithm's output with statistics: each car is displayed in a color corresponding to the road it arrived from at the roundabout, plus the number of visible cars is shown, plus the values of the incoming flow intensity (number of cars per minute from each incoming road).
 
----
+This is displayed when `show_node.show_info_statistics=True` is set in the configuration.
 
-## Существующие версии кода:
+![Example1](https://github.com/galelisette/traffanalys/blob/main/cam1.gif)
 
-В проекте специально предусмотрено множество веток, реализующих разные уровни разработки масштабного Computer Vision проекта.
+You can disable the statistics window by setting `show_node.show_info_statistics=False` in the configuration.
 
-Например, в ветке [**main**](https://github.com/Koldim2001/TrafficAnalyzer/tree/main) Docker Compose позволяет поднять сторонние сервисы (Grafana для визуализации и базу данных PostgreSQL). Однако основной код, реализующий бекенд, необходимо запускать локально с помощью имеющегося на компьютере Python. Туториал по этой версии кода - [YouTube](https://www.youtube.com/watch?v=u9EtqHz4Vqc)
+To see the processing FPS as in the first example shown, set `show_node.draw_fps_info=True` in the config.
 
-Дальнейшее развитие проекта заключается в реализации полного Docker Compose из всех имеющихся сервисов, включая сам бекенд. Такая версия доступна в ветке [**prod_docker_version**](https://github.com/Koldim2001/TrafficAnalyzer/tree/prod_docker_version). Код из этой ветки очень просто запустить, и не требуется ничего иметь на компьютере, кроме Docker. Проект запускается единственной командой: `docker compose -p traffic_analyzer up -d --build`. Туториал по этой версии кода - [YouTube](https://www.youtube.com/watch?v=jU6Y2GRh2Zs)
+Example of the car-tracking results display mode (each ID is shown in its own unique color).
 
-Следующим этапом развития проекта стало появление ветки [**multicamera**](https://github.com/Koldim2001/TrafficAnalyzer/tree/multicamera). В ней реализовано всё то же, что и в ветке prod_docker_version, но теперь есть удобная возможность масштабировать проект на большое число камер. Для этого потребуется лишь в файле docker-compose добавить новые контейнеры бекенда с указанием пути до нового видео ресурса. При этом вся обработка будет выполняться нативно внутри контейнеров бекенда, включая инференс самой сети. Под каждую новую камеру автоматически поднимается новый инстанс сети YOLO, реализующий детекцию транспорта. Туториал по этой версии кода - [YouTube](https://www.youtube.com/watch?v=jU6Y2GRh2Zs)
+![Example2](https://github.com/galelisette/traffanalys/blob/main/cam2.gif)
 
-Еще одним дальнейшим вариантом развития стало появление ветки [**feature/triton**](https://github.com/Koldim2001/TrafficAnalyzer/tree/feature/triton). По сути это та же ветка multicamera, но теперь все контейнеры бекенда не реализуют инференс сети внутри, а лишь отправляют запросы по gRPC на дополнительный сервис под названием Triton Inference Server. Благодаря этому можно масштабировать проект без значительного увеличения нагрузки (хотя значения FPS будет чуть ниже из-за того, что теперь для инференса надо отправлять запрос на сервис и получать ответы с него). Однако теперь лишь один контейнер взаимодействует с видеокартой, и инстансы бекенда не требуют GPU для работы.
+This is displayed when `show_node.show_track_id_different_colors=True` is set in the configuration.
 
-Еще одним дальнейшим вариантом развития стало появление ветки [**feature/influx**](https://github.com/Koldim2001/TrafficAnalyzer/tree/feature/influx).
-**Это как раз та ветка, в которой вы сейчас находитесь.** 
-По сути это та же ветка multicamera, но теперь база данных изменена с PostgreSQL на базу данных врмененных рядов InfluxDB. Данная база данных лучше подходит для работы с потоковыми данными, которые записываются с бекенда. При этом запись в InfluxDB осуществляется с помощью сервиса Telegraf, который читает топик брокера сообщений Kafka, в который отправляет бекенд, и производит автоматическое сохранение данных в Influx. Туториал по этой версии кода - [YouTube]()
-
-Структура ветвления Git проекта представлена ниже:
-
-```
-main
-└── prod_docker_version
-    └── multicamera
-        ├── feature/triton
-        └── feature/influx
-```
